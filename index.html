@@ -10,6 +10,7 @@
 <link rel="stylesheet" href="./styles.css">
 
 <script src="https://cdn.jsdelivr.net/npm/vue"></script>
+<script src="https://unpkg.com/sweetalert2"></script>
 
 <div id="app">
   <div id="login">
@@ -24,7 +25,7 @@
 
         <label for="password">Password</label>&nbsp;
         <i class="fas" :class="[passwordIcon]" @click="hidePassword = !hidePassword"></i>
-        <input :type="passwordType" id="password" v-model="password" placeholder="**********">
+        <input :type="passwordType" id="password" v-model="password" placeholder="**********" autocomplete="off">
 
         <button type="submit">Log in</button>
       </form>
@@ -50,8 +51,125 @@
     },
     methods: {
       doLogin() {
-        alert('Not implemented yet :O')
+        // create first dialog to show that the password is being validated right now.
+        swal({
+          title: 'Validating your password!',
+          text: 'Checking, if your password is valid and appers in any public data breach.',
+          onOpen: async () => {
+            swal.showLoading();
+
+            try {
+              // generate the SHA1 hash and pass the first 5 characters to the API.
+              const sha1hash = (await sha1(this.password)).toUpperCase();
+              const response = await fetch(`https://api.pwnedpasswords.com/range/${sha1hash.slice(0, 5)}`);
+
+              if (response.status === 200) {
+                // split the result by line and check, if one line matches our hash.
+                // remember, that as a result, we only get back the second part of the hash from
+                // the API without our submitted feedback. That's the reason, why we have
+                // to compare it to our hash by also omitting the first 5 characters.
+                const rows = (await response.text()).split('\r\n');
+                const match = rows.find(value => value.split(':')[0] === sha1hash.slice(5));
+
+                if (match && match.split(':')[1] > 0) {
+                  // show an alert box, if there was a match with more than 0 occurences.
+                  swal({
+                    title: 'Insecure password!',
+                    text: `Your password has been found in ${match.split(':')[1]} data breaches! You shoud consider changing it!`,
+                    type: 'warning',
+                    showCancelButton: true,
+                    cancelButtonText: 'Continue anyway',
+                    confirmButtonText: 'Change password'
+                  }).then(result => {
+                    // close the dialog without further action if the user clicks
+                    // onto the background or presses the esc key
+                    if (
+                      result.dismiss === swal.DismissReason.backdrop ||
+                      result.dismiss === swal.DismissReason.esc
+                    ) {
+                      swal.close();
+                      return;
+                    }
+
+                    // handle the case, if the user clicked 'change password'
+                    if (result.value) {
+                      swal({
+                        title: 'Redirection',
+                        text: 'We are going to redirect you now!',
+                        type: 'success',
+                        timer: 2000,
+                        onOpen() {
+                          swal.showLoading();
+                        }
+                      }).then(() => {
+                        window.location = '/user/edit/';
+                      });
+
+                      return;
+                    }
+
+                    // handle the case, if the user clicked 'continue anyway'
+                    swal({
+                      title: 'Redirection',
+                      text: 'We are going to redirect you now!',
+                      type: 'success',
+                      timer: 2000,
+                      onOpen() {
+                        swal.showLoading();
+                      }
+                    }).then(() => {
+                      window.location = '/dashboard/';
+                    });
+                  });
+
+                  return;
+                }
+
+                // the user's password hasn't been found in a publicly breached database
+                swal({
+                  title: 'Redirection',
+                  text: 'We are going to redirect you now!',
+                  type: 'success',
+                  timer: 2000,
+                  onOpen() {
+                    swal.showLoading();
+                  }
+                }).then(() => {
+                  window.location = '/dashboard/';
+                });
+              }
+            } catch (error) {
+              console.error(error);
+            }
+          }
+        });
       }
     }
-  })
+  });
+
+  async function sha1(password) {
+    // We transform the string into an arraybuffer.
+    const buffer = new TextEncoder().encode(password);
+
+    const hash = await crypto.subtle.digest('SHA-1', buffer);
+    return hex(hash);
+  }
+
+  function hex(buffer) {
+    const hexCodes = [];
+    const view = new DataView(buffer);
+    for (let i = 0; i < view.byteLength; i += 4) {
+      // Using getUint32 reduces the number of iterations needed (we process 4 bytes each time)
+      const value = view.getUint32(i)
+      // toString(16) will give the hex representation of the number without padding
+      const stringValue = value.toString(16)
+      // We use concatenation and slice for padding
+      const padding = '00000000'
+      const paddedValue = (padding + stringValue).slice(-padding.length)
+      hexCodes.push(paddedValue);
+    }
+
+    // Join all the hex strings into one
+    return hexCodes.join('');
+  }
 </script>
